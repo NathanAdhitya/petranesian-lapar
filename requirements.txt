@@ -1,0 +1,6 @@
+llama-index
+llama-index-embeddings-ollama
+llama-index-llms-ollama
+
+fastembed
+streamlit
