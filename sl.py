@@ -5,6 +5,7 @@ from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
 from llama_index.readers.file import CSVReader
 from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.core import Settings
+from llama_index.core.memory import ChatMemoryBuffer
 
 import sys
 
@@ -19,23 +20,32 @@ real-time data. You will always try to be helpful and try to help them
 answering their question. If you don't know the answer, say that you DON'T
 KNOW.
 
-Try to always reply in Bahasa Indonesia.
-Tugas Anda adalah untuk menjadi pelayan kantin yang ramah.
+Jawablah semua dalam Bahasa Indonesia.
+Tugas Anda adalah untuk menjadi pelayan kantin yang ramah yang dapat mengarahkan user.
+
 Kantin yang Anda layani adalah kantin kampus Universitas Kristen Petra Surabaya.
-Pada Universitas Kristen Petra terdapat 5 gedung utama yang setiap gedungnya memiliki kantin, 
+Pada Universitas Kristen Petra terdapat 4 gedung utama yang setiap gedungnya memiliki kantin, 
 yaitu Gedung T, Gedung W, Gedung P, dan Gedung Q.
 
 Arahkanlah mahasiswa dan staff yang lapar ke kantin dan ke stall kantin yang tepat
-berdasarkan keinginan mereka. Berikanlah setidaknya 3 hingga 5 rekomendasi makanan dan minuman 
+berdasarkan keinginan mereka. Berikanlah beberapa makanan dan minuman
 yang relevan berdasarkan kebutuhan mereka.
+
+Perhatikan perbedaan antara beberapa makanan, sebagai contoh, nasi ayam goreng memiliki implikasi menggunakan nasi putih sebagai dasar, sementara nasi goreng ayam memiliki dasar nasi goreng dengan lauk ayam.
+Hanya jawab dengan makanan/minuman yang relevan sesuai yang diminta.
 
 Untuk setiap jawaban, pastikan Anda memberikan detil yang lengkap.
 
-Contoh percakapan:
+Contoh percakapan 1:
 User: Aku lapar, makan mie di mana ya?
 Assistant: Kamu lagi di gedung mana?
 User: Gedung P
-Assistant: Di Gedung P terdapat 2 stall yang menjual mie goreng. Ada Ndokee Express dan Soto Ayam Jago. Harga mie goreng di Ndokee Express sekitar 12.000 rupiah, sementara di soto ayam jago sekitar 16.000 rupiah.
+Assistant: Di Gedung P terdapat 2 stall yang menjual mie goreng. Ada Ndokee Express dan Soto Ayam Jago. Harga mie goreng di Ndokee Express sekitar 12.000 rupiah, sementara di soto ayam jago sekitar 16.000 rupiah. Mau apa lagi?
+
+Contoh percakapan 2:
+Assistant: Halo! Lagi mau makan/minum apaan? 😉
+User: Aku ingin nasi goreng di Gedung W.
+Assistant: Waduh, saya tidak menemukan nasi goreng di Gedung W. Mungkin mau mencoba ayam bakar?
 
 Percakapan sejauh ini:
 """
@@ -61,6 +71,9 @@ def load_data(vector_store=None):
         )
         documents = reader.load_data()
 
+        for doc in documents:
+            doc.excluded_llm_metadata_keys = ["filename", "extension"]
+
     if vector_store is None:
         index = VectorStoreIndex.from_documents(documents, show_progress=True)
     return index
@@ -83,15 +96,31 @@ if "chat_engine" not in st.session_state.keys():
     init_history = [
         ChatMessage(role=MessageRole.ASSISTANT, content="Halo! Lagi mau makan/minum apaan? 😉"),
     ]
+    memory = ChatMemoryBuffer.from_defaults(token_limit=16384)
     st.session_state.chat_engine = index.as_chat_engine(
         chat_mode="condense_plus_context", verbose=True, streaming=True,
         system_prompt=system_prompt,
         context_prompt=(
-                "Anda adalah pelayan kantin yang ramah yang dapat membantu user mencari makan dan minum."
-                "Ini adalah dokumen yang relevan terhadap konteks:\n"
+                "Anda adalah pelayan kantin profesional yang ramah yang dapat mengarahkan user ketika mencari makanan dan stall kantin.\n"
+                "Format dokumen pendukung: gedung letak kantin, nama stall, nama produk, harga, keterangan\n"
+                "Ini adalah dokumen yang mungkin relevan terhadap konteks:\n\n"
                 "{context_str}"
-                "\nInstruksi: Gunakan riwayat obrolan sebelumnya, atau konteks di atas, untuk berinteraksi dan membantu pengguna."
-            )
+                "\n\nInstruksi: Gunakan riwayat obrolan sebelumnya, atau konteks di atas, untuk berinteraksi dan membantu pengguna. Hanya jawab dengan kantin/menu yang sesuai. Jika tidak menemukan makanan atau minuman yang sesuai, maka katakan bahwa tidak menemukan."
+            ),
+        condense_prompt="""
+Diberikan suatu percakapan (antara Manusia dan Asisten) dan pesan lanjutan dari Manusia,
+Ubah pesan lanjutan menjadi pertanyaan independen yang mencakup semua konteks relevan
+dari percakapan sebelumnya. Pada umumnya, konteks yang penting adalah makanan/minuman yang dicari, nama stall, dan letak gedung.
+
+<Sejarah Percakapan>
+{chat_history}
+
+<Pesan Lanjutan>
+{question}
+
+<Pertanyaan Independen>""",
+        similarity_top_k=32,
+        memory=memory
     )
 
 # Display chat messages from history on app rerun
