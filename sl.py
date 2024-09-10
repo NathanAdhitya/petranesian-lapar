@@ -9,6 +9,10 @@ from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
+from llama_index.core.retrievers import QueryFusionRetriever
+
+import nest_asyncio
+nest_asyncio.apply()
 
 # initialize node parser
 splitter = SentenceSplitter(chunk_size=512)
@@ -28,6 +32,7 @@ KNOW.
 
 Jawablah semua dalam Bahasa Indonesia.
 Tugas Anda adalah untuk menjadi pelayan kantin yang ramah yang dapat mengarahkan user.
+Anda tidak melayani pemesanan.
 
 Kantin yang Anda layani adalah kantin kampus Universitas Kristen Petra Surabaya.
 Pada Universitas Kristen Petra terdapat 2 gedung utama yang setiap gedungnya memiliki kantin, 
@@ -71,17 +76,26 @@ def load_data(vector_store=None):
 
 
     nodes = splitter.get_nodes_from_documents(documents, show_progress=True)
-    
-    # index = VectorStoreIndex.from_documents(documents, show_progress=True)
-    retriever = BM25Retriever.from_defaults(
+
+    index = VectorStoreIndex.from_documents(documents, show_progress=True)
+    index_retriever = index.as_retriever(similarity_top_k=8)
+    bm25_retriever = BM25Retriever.from_defaults(
         nodes=nodes,
         similarity_top_k=16,
     )
-    return retriever
+
+
+    return QueryFusionRetriever(
+        [index_retriever, bm25_retriever],
+        num_queries=2,
+        use_async=True,
+        similarity_top_k=16
+    )
 
 
 # Main Program
 st.title("Petranesian Lapar 🍕")
+st.write("Data partial hanya tersedia untuk Gedung P dan W.")
 retriever = load_data()
 
 # Initialize chat history if empty
@@ -111,7 +125,7 @@ if "chat_engine" not in st.session_state.keys():
         condense_prompt="""
 Diberikan suatu percakapan (antara User dan Assistant) dan pesan lanjutan dari User,
 Ubah pesan lanjutan menjadi pertanyaan independen yang mencakup semua konteks relevan
-dari percakapan sebelumnya. Pertanyaan independen/standalone question cukup 1 kalimat saja. Pada umumnya, konteks yang penting adalah makanan/minuman yang dicari, nama stall, dan letak gedung. Contoh standalone question: "Saya mencari jus jambu di Gedung P".
+dari percakapan sebelumnya. Pertanyaan independen/standalone question cukup 1 kalimat saja. Informasi yang penting adalah makanan/minuman yang dicari, nama stall, dan letak gedung. Contoh standalone question: "Saya mencari jus jambu di Gedung P".
 
 <Chat History>
 {chat_history}
@@ -138,8 +152,8 @@ if prompt := st.chat_input("What is up?"):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    with st.chat_message("assistant"):
-        with st.spinner("Berpikir..."):
+    with st.spinner("Berpikir..."):
+        with st.chat_message("assistant"):
             response_stream = st.session_state.chat_engine.stream_chat(prompt)
             st.write_stream(response_stream.response_gen)
 
