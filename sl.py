@@ -89,7 +89,7 @@ def load_data(vector_store=None):
         [index_retriever, bm25_retriever],
         num_queries=2,
         use_async=True,
-        similarity_top_k=16
+        similarity_top_k=24
     )
 
 
@@ -152,8 +152,8 @@ if prompt := st.chat_input("What is up?"):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    with st.spinner("Berpikir..."):
-        with st.chat_message("assistant"):
+    with st.chat_message("assistant"):
+        with st.spinner("Berpikir..."):
             response_stream = st.session_state.chat_engine.stream_chat(prompt)
             st.write_stream(response_stream.response_gen)
 
